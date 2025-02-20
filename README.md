@@ -66,4 +66,4 @@ Le serveur tourne maintenant sur : **[http://localhost:8080](http://localhost:80
 
 ## ✍️ **Auteurs**
 Ce projet a été réalisé dans le cadre du Groupe Go par :  
-**Ianis CHENNAF, Philippe Ivan MBARGA, Mateo OUDART, Salman Ali MADEC, Lucas MESSIA DOLIVEUX**  
+**Ianis CHENNAF, Philippe Ivan MBARGA, Mateo OUDART, Salman Ali MADEC, Lucas MESSIA DOLIVEUX.**  
