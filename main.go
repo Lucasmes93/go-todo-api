@@ -84,6 +84,31 @@ func main() {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Tâche non trouvée"})
 	})
 
+	// Route DELETE /tasks/:id pour supprimer une tâche existante
+	r.DELETE("/tasks/:id", func(c *gin.Context) {
+		idParam := c.Param("id")
+		taskID, err := strconv.Atoi(idParam)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "ID invalide"})
+			return
+		}
+
+		mutex.Lock()
+		defer mutex.Unlock()
+
+		// Chercher la tâche et la supprimer
+		for i, task := range tasks {
+			if task.ID == taskID {
+				tasks = append(tasks[:i], tasks[i+1:]...) // Supprime la tâche
+				c.JSON(http.StatusOK, gin.H{"message": "Tâche supprimée"})
+				return
+			}
+		}
+
+		// Si la tâche n'est pas trouvée
+		c.JSON(http.StatusNotFound, gin.H{"error": "Tâche non trouvée"})
+	})
+
 	// Lancer le serveur sur le port 8080
 	r.Run(":8080")
 }
