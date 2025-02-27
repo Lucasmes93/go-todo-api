@@ -1,70 +1,124 @@
 package main
 
 import (
-	"net/http" // Package pour gérer les requêtes HTTP
-	"strconv"  // Package pour convertir les chaînes de caractères en nombres
-	"sync"     // Package pour gérer la concurrence avec un mutex
+	"encoding/json" // Package pour manipuler les fichiers JSON
+	"fmt"           // Package pour afficher les erreurs
+	"io/ioutil"     // Package pour lire et écrire dans des fichiers
+	"net/http"      // Package pour gérer les requêtes HTTP
+	"os"           // Package pour gérer les fichiers (vérifier leur existence)
+	"strconv"       // Package pour convertir les types (ex : string → int)
+	"sync"          // Package pour éviter les conflits d'accès concurrentiel
 
-	"github.com/gin-gonic/gin" // Importation du framework Gin pour gérer les routes HTTP
+	"github.com/gin-gonic/gin" // Framework Gin pour gérer les routes HTTP
 )
 
 // Définition de la structure Task
 type Task struct {
-	ID    int    `json:"id"`    // Identifiant unique de la tâche, sérialisé en JSON sous le nom "id"
-	Title string `json:"title"` // Titre de la tâche, sérialisé en JSON sous le nom "title"
+	ID    int    `json:"id"`    // Identifiant unique de la tâche, qui sera sérialisé en JSON sous "id"
+	Title string `json:"title"` // Titre de la tâche, sérialisé sous "title"
 }
 
-// Stockage en mémoire des tâches
+// Variables globales
 var (
 	tasks  []Task     // Liste des tâches stockées en mémoire
-	mutex  sync.Mutex // Mutex pour éviter les problèmes d'accès concurrentiels
-	nextID = 1        // Variable pour attribuer un identifiant unique aux tâches
+	mutex  sync.Mutex // Mutex pour gérer l'accès concurrentiel aux tâches
+	nextID = 1        // ID incrémental pour attribuer un identifiant unique aux nouvelles tâches
 )
 
+// Nom du fichier JSON où seront stockées les tâches
+const taskFile = "tasks.json"
+
+// Fonction pour sauvegarder les tâches dans le fichier JSON
+func saveTasksToFile() {
+	// Convertir la liste des tâches en format JSON indenté (lisible)
+	data, err := json.MarshalIndent(tasks, "", "  ")
+	if err != nil {
+		fmt.Println("Erreur d'encodage JSON :", err)
+		return
+	}
+
+	// Écrire les données JSON dans le fichier "tasks.json"
+	err = ioutil.WriteFile(taskFile, data, 0644)
+	if err != nil {
+		fmt.Println("Erreur d'écriture dans le fichier :", err)
+	}
+}
+
+// Fonction pour charger les tâches depuis le fichier JSON au démarrage
+func loadTasksFromFile() {
+	// Vérifier si le fichier tasks.json existe
+	if _, err := os.Stat(taskFile); os.IsNotExist(err) {
+		return // Si le fichier n'existe pas encore, on ne fait rien
+	}
+
+	// Lire le contenu du fichier JSON
+	data, err := ioutil.ReadFile(taskFile)
+	if err != nil {
+		fmt.Println("Erreur de lecture du fichier :", err)
+		return
+	}
+
+	// Décoder le JSON en une liste de tâches
+	err = json.Unmarshal(data, &tasks)
+	if err != nil {
+		fmt.Println("Erreur de décodage JSON :", err)
+		return
+	}
+
+	// Mettre à jour l'ID suivant en fonction des tâches existantes
+	for _, task := range tasks {
+		if task.ID >= nextID {
+			nextID = task.ID + 1 // S'assurer que le prochain ID est unique
+		}
+	}
+}
+
 func main() {
+	// Charger les tâches existantes au démarrage du serveur
+	loadTasksFromFile()
+
 	// Créer un routeur Gin
 	r := gin.Default()
 
-	// Route GET /tasks pour récupérer la liste de toutes les tâches
+	// Route GET /tasks pour récupérer la liste des tâches
 	r.GET("/tasks", func(c *gin.Context) {
-		mutex.Lock()                 // Verrouillage du mutex pour éviter les conflits d'accès
-		defer mutex.Unlock()         // Déverrouillage automatique à la fin de la fonction
-		c.JSON(http.StatusOK, tasks) // Envoi de la liste des tâches en JSON avec un code 200 OK
+		mutex.Lock()                 // Verrouiller l'accès aux tâches
+		defer mutex.Unlock()         // Déverrouiller après l'exécution
+		c.JSON(http.StatusOK, tasks) // Renvoyer la liste des tâches au format JSON
 	})
 
 	// Route POST /tasks pour ajouter une nouvelle tâche
 	r.POST("/tasks", func(c *gin.Context) {
-		var newTask Task // Création d'une nouvelle tâche
+		var newTask Task // Déclaration d'une nouvelle tâche
 
-		// Vérification de la validité des données JSON envoyées par le client
+		// Vérifier que le JSON envoyé est valide
 		if err := c.ShouldBindJSON(&newTask); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Données invalides"}) // Retourne une erreur 400 si le JSON est incorrect
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Données invalides"}) // Retourner une erreur 400 si le JSON est incorrect
 			return
 		}
 
-		// Ajouter un identifiant unique à la nouvelle tâche
-		mutex.Lock()                   // Verrouillage pour modifier la liste en toute sécurité
-		newTask.ID = nextID            // Attribution d'un identifiant unique
-		nextID++                       // Incrémentation du prochain ID
-		tasks = append(tasks, newTask) // Ajout de la tâche à la liste
-		mutex.Unlock()                 // Déverrouillage après modification
+		mutex.Lock()                   // Verrouiller l'accès pour éviter les conflits
+		newTask.ID = nextID            // Assigner un ID unique
+		nextID++                       // Incrémenter l'ID pour la prochaine tâche
+		tasks = append(tasks, newTask) // Ajouter la nouvelle tâche à la liste
+		saveTasksToFile()              // Sauvegarder dans le fichier JSON
+		mutex.Unlock()                 // Déverrouiller
 
-		// Retourner la tâche ajoutée avec un code 201 Created
-		c.JSON(http.StatusCreated, newTask)
+		c.JSON(http.StatusCreated, newTask) // Retourner la tâche créée avec un code 201 Created
 	})
 
 	// Route PUT /tasks/:id pour modifier une tâche existante
 	r.PUT("/tasks/:id", func(c *gin.Context) {
-		idParam := c.Param("id")             // Récupération du paramètre ID de l'URL
-		taskID, err := strconv.Atoi(idParam) // Conversion de l'ID en entier
+		idParam := c.Param("id")             // Récupérer l'ID passé en paramètre dans l'URL
+		taskID, err := strconv.Atoi(idParam) // Convertir l'ID en entier
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "ID invalide"}) // Retourne une erreur 400 si l'ID est invalide
+			c.JSON(http.StatusBadRequest, gin.H{"error": "ID invalide"}) // Retourner une erreur 400 si l'ID est invalide
 			return
 		}
 
-		var updatedTask Task // Création d'une nouvelle structure pour stocker les données mises à jour
+		var updatedTask Task // Déclaration de la tâche mise à jour
 		if err := c.ShouldBindJSON(&updatedTask); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Données invalides"}) // Retourne une erreur 400 si le JSON est incorrect
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Données invalides"}) // Retourner une erreur 400 si le JSON est invalide
 			return
 		}
 
@@ -74,22 +128,23 @@ func main() {
 		// Parcourir la liste des tâches pour trouver celle à modifier
 		for i, task := range tasks {
 			if task.ID == taskID { // Si l'ID correspond
-				tasks[i].Title = updatedTask.Title // Mise à jour du titre
-				c.JSON(http.StatusOK, tasks[i])    // Retourne la tâche mise à jour avec un code 200 OK
+				tasks[i].Title = updatedTask.Title // Modifier le titre de la tâche
+				saveTasksToFile()                  // Sauvegarder les changements
+				c.JSON(http.StatusOK, tasks[i])    // Retourner la tâche mise à jour
 				return
 			}
 		}
 
-		// Si la tâche n'est pas trouvée, retourner une erreur 404
+		// Retourner une erreur 404 si l'ID de la tâche n'est pas trouvé
 		c.JSON(http.StatusNotFound, gin.H{"error": "Tâche non trouvée"})
 	})
 
-	// Route DELETE /tasks/:id pour supprimer une tâche existante
+	// Route DELETE /tasks/:id pour supprimer une tâche
 	r.DELETE("/tasks/:id", func(c *gin.Context) {
-		idParam := c.Param("id")             // Récupération du paramètre ID de l'URL
-		taskID, err := strconv.Atoi(idParam) // Conversion de l'ID en entier
+		idParam := c.Param("id")             // Récupérer l'ID passé en paramètre
+		taskID, err := strconv.Atoi(idParam) // Convertir l'ID en entier
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "ID invalide"}) // Retourne une erreur 400 si l'ID est invalide
+			c.JSON(http.StatusBadRequest, gin.H{"error": "ID invalide"}) // Retourner une erreur 400 si l'ID est invalide
 			return
 		}
 
@@ -99,13 +154,14 @@ func main() {
 		// Parcourir la liste des tâches pour trouver celle à supprimer
 		for i, task := range tasks {
 			if task.ID == taskID { // Si l'ID correspond
-				tasks = append(tasks[:i], tasks[i+1:]...)                  // Supprime la tâche de la liste
-				c.JSON(http.StatusOK, gin.H{"message": "Tâche supprimée"}) // Retourne un message de confirmation
+				tasks = append(tasks[:i], tasks[i+1:]...) // Supprimer la tâche de la liste
+				saveTasksToFile()                         // Sauvegarder les changements
+				c.JSON(http.StatusOK, gin.H{"message": "Tâche supprimée"}) // Confirmer la suppression
 				return
 			}
 		}
 
-		// Si la tâche n'est pas trouvée, retourner une erreur 404
+		// Retourner une erreur 404 si la tâche n'existe pas
 		c.JSON(http.StatusNotFound, gin.H{"error": "Tâche non trouvée"})
 	})
 
