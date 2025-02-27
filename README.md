@@ -130,4 +130,4 @@ L'API sera accessible sur **[http://localhost:8080](http://localhost:8080)**.
 ## ✍️ **Auteurs**
 Ce projet a été réalisé dans le cadre du Groupe Go par :  
 **Ianis CHENNAF, Philippe Ivan MBARGA, Mateo OUDART, Salman Ali MADEC, Lucas MESSIA DOLIVEUX.**
-```
+
