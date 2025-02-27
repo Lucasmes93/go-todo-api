@@ -1,20 +1,19 @@
 package main
 
 import (
-	"encoding/json" // Package pour manipuler les fichiers JSON
-	"fmt"           // Package pour afficher les erreurs
-	"io/ioutil"     // Package pour lire et écrire dans des fichiers
-	"net/http"      // Package pour gérer les requêtes HTTP
-	"os"           // Package pour gérer les fichiers (vérifier leur existence)
-	"strconv"       // Package pour convertir les types (ex : string → int)
-	"sync"          // Package pour éviter les conflits d'accès concurrentiel
+	"encoding/json" // Pour manipuler les fichiers JSON
+	"fmt"           // Pour afficher les erreurs
+	"net/http"      // Pour gérer les requêtes HTTP
+	"os"           // Pour lire et écrire dans des fichiers
+	"strconv"       // Pour convertir les types
+	"sync"          // Pour éviter les conflits d'accès concurrentiel
 
 	"github.com/gin-gonic/gin" // Framework Gin pour gérer les routes HTTP
 )
 
 // Définition de la structure Task
 type Task struct {
-	ID    int    `json:"id"`    // Identifiant unique de la tâche, qui sera sérialisé en JSON sous "id"
+	ID    int    `json:"id"`    // Identifiant unique de la tâche, sérialisé en JSON sous "id"
 	Title string `json:"title"` // Titre de la tâche, sérialisé sous "title"
 }
 
@@ -28,23 +27,22 @@ var (
 // Nom du fichier JSON où seront stockées les tâches
 const taskFile = "tasks.json"
 
-// Fonction pour sauvegarder les tâches dans le fichier JSON
+// Fonction pour sauvegarder les tâches dans le fichier JSON (sans ioutil)
 func saveTasksToFile() {
-	// Convertir la liste des tâches en format JSON indenté (lisible)
-	data, err := json.MarshalIndent(tasks, "", "  ")
+	data, err := json.MarshalIndent(tasks, "", "  ") // Convertir la liste des tâches en JSON formaté
 	if err != nil {
 		fmt.Println("Erreur d'encodage JSON :", err)
 		return
 	}
 
 	// Écrire les données JSON dans le fichier "tasks.json"
-	err = ioutil.WriteFile(taskFile, data, 0644)
+	err = os.WriteFile(taskFile, data, 0644)
 	if err != nil {
 		fmt.Println("Erreur d'écriture dans le fichier :", err)
 	}
 }
 
-// Fonction pour charger les tâches depuis le fichier JSON au démarrage
+// Fonction pour charger les tâches depuis le fichier JSON au démarrage (sans ioutil)
 func loadTasksFromFile() {
 	// Vérifier si le fichier tasks.json existe
 	if _, err := os.Stat(taskFile); os.IsNotExist(err) {
@@ -52,7 +50,7 @@ func loadTasksFromFile() {
 	}
 
 	// Lire le contenu du fichier JSON
-	data, err := ioutil.ReadFile(taskFile)
+	data, err := os.ReadFile(taskFile)
 	if err != nil {
 		fmt.Println("Erreur de lecture du fichier :", err)
 		return
@@ -82,9 +80,9 @@ func main() {
 
 	// Route GET /tasks pour récupérer la liste des tâches
 	r.GET("/tasks", func(c *gin.Context) {
-		mutex.Lock()                 // Verrouiller l'accès aux tâches
-		defer mutex.Unlock()         // Déverrouiller après l'exécution
-		c.JSON(http.StatusOK, tasks) // Renvoyer la liste des tâches au format JSON
+		mutex.Lock()
+		defer mutex.Unlock()
+		c.JSON(http.StatusOK, tasks)
 	})
 
 	// Route POST /tasks pour ajouter une nouvelle tâche
@@ -97,12 +95,12 @@ func main() {
 			return
 		}
 
-		mutex.Lock()                   // Verrouiller l'accès pour éviter les conflits
-		newTask.ID = nextID            // Assigner un ID unique
-		nextID++                       // Incrémenter l'ID pour la prochaine tâche
-		tasks = append(tasks, newTask) // Ajouter la nouvelle tâche à la liste
-		saveTasksToFile()              // Sauvegarder dans le fichier JSON
-		mutex.Unlock()                 // Déverrouiller
+		mutex.Lock()
+		newTask.ID = nextID // Assigner un ID unique
+		nextID++            // Incrémenter l'ID pour la prochaine tâche
+		tasks = append(tasks, newTask)
+		saveTasksToFile() // Sauvegarder dans le fichier JSON
+		mutex.Unlock()
 
 		c.JSON(http.StatusCreated, newTask) // Retourner la tâche créée avec un code 201 Created
 	})
