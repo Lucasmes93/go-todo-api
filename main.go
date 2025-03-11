@@ -4,9 +4,10 @@ import (
 	"encoding/json" // Pour manipuler les fichiers JSON
 	"fmt"           // Pour afficher les erreurs
 	"net/http"      // Pour gérer les requêtes HTTP
-	"os"           // Pour lire et écrire dans des fichiers
+	"os"            // Pour lire et écrire dans des fichiers
 	"strconv"       // Pour convertir les types
 	"sync"          // Pour éviter les conflits d'accès concurrentiel
+	"time"
 
 	"github.com/gin-gonic/gin" // Framework Gin pour gérer les routes HTTP
 )
@@ -161,6 +162,18 @@ func main() {
 
 		// Retourner une erreur 404 si la tâche n'existe pas
 		c.JSON(http.StatusNotFound, gin.H{"error": "Tâche non trouvée"})
+	})
+
+	// Route /tasks/process pour exécuter une tâche en arrière-plan
+	r.GET("/tasks/process", func(c *gin.Context) {
+		go func() {
+			fmt.Println("Démarrage du traitement en arrière-plan...")
+			time.Sleep(5 * time.Second) // Simule un traitement long de 5 secondes
+			fmt.Println("Traitement terminé.")
+		}()
+
+		// Répondre immédiatement sans attendre la fin du traitement
+		c.JSON(http.StatusAccepted, gin.H{"message": "Traitement lancé en arrière-plan"})
 	})
 
 	// Lancer le serveur sur le port 8080
