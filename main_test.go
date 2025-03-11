@@ -1,80 +1,22 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
-	"fmt"
+	"math/rand"
 	"net/http"
-	"os"
+	"net/http/httptest"
 	"strconv"
 	"sync"
+	"testing"
 	"time"
 
-	"math/rand"
-
 	"github.com/gin-gonic/gin"
+	"github.com/stretchr/testify/assert"
 )
 
-type Task struct {
-	ID    int    `json:"id"`
-	Title string `json:"title"`
-}
-
-var (
-	tasks  []Task
-	mutex  sync.Mutex
-	nextID = 1
-)
-
-const taskFile = "tasks.json"
-
-func saveTasksToFile() {
-	data, err := json.MarshalIndent(tasks, "", "  ")
-	if err != nil {
-		fmt.Println("Erreur d'encodage JSON :", err)
-		return
-	}
-	err = os.WriteFile(taskFile, data, 0644)
-	if err != nil {
-		fmt.Println("Erreur d'écriture dans le fichier :", err)
-	}
-}
-
-func computeSum(n int) int {
-	sum := 0
-	for i := 1; i <= n; i++ {
-		sum += i
-	}
-	return sum
-}
-
-func loadTasksFromFile() {
-	if _, err := os.Stat(taskFile); os.IsNotExist(err) {
-		return
-	}
-
-	data, err := os.ReadFile(taskFile)
-	if err != nil {
-		fmt.Println("Erreur de lecture du fichier :", err)
-		return
-	}
-
-	err = json.Unmarshal(data, &tasks)
-	if err != nil {
-		fmt.Println("Erreur de décodage JSON :", err)
-		return
-	}
-
-	for _, task := range tasks {
-		if task.ID >= nextID {
-			nextID = task.ID + 1
-		}
-	}
-}
-
-func main() {
-
-	loadTasksFromFile()
-
+func setupRouter() *gin.Engine {
+	gin.SetMode(gin.TestMode)
 	r := gin.Default()
 
 	r.GET("/tasks", func(c *gin.Context) {
@@ -85,7 +27,6 @@ func main() {
 
 	r.POST("/tasks", func(c *gin.Context) {
 		var newTask Task
-
 		if err := c.ShouldBindJSON(&newTask); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Données invalides"})
 			return
@@ -153,15 +94,6 @@ func main() {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Tâche non trouvée"})
 	})
 
-	r.GET("/tasks/process", func(c *gin.Context) {
-		go func() {
-			fmt.Println("Démarrage du traitement en arrière-plan...")
-			time.Sleep(5 * time.Second)
-			fmt.Println("Traitement terminé.")
-		}()
-		c.JSON(http.StatusAccepted, gin.H{"message": "Traitement lancé en arrière-plan"})
-	})
-
 	r.GET("/tasks/parallel", func(c *gin.Context) {
 		var wg sync.WaitGroup
 		taskCount := 5
@@ -172,14 +104,10 @@ func main() {
 			wg.Add(1)
 			go func(taskID int) {
 				defer wg.Done()
-
 				sleepTime := time.Duration(2+rand.Intn(4)) * time.Second
 				time.Sleep(sleepTime)
-
 				n := 10 + rand.Intn(91)
-				sumResult := computeSum(n)
-				results[taskID] = sumResult
-				fmt.Printf("Tâche %d terminée après %v - Somme calculée: %d\n", taskID+1, sleepTime, sumResult)
+				results[taskID] = computeSum(n)
 			}(i)
 		}
 
@@ -190,5 +118,78 @@ func main() {
 		})
 	})
 
-	r.Run(":8080")
+	return r
+}
+
+func TestCreateTask(t *testing.T) {
+	router := setupRouter()
+
+	task := Task{Title: "Nouvelle tâche"}
+	jsonValue, _ := json.Marshal(task)
+	req, _ := http.NewRequest("POST", "/tasks", bytes.NewBuffer(jsonValue))
+	req.Header.Set("Content-Type", "application/json")
+
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusCreated, w.Code)
+
+	var createdTask Task
+	json.Unmarshal(w.Body.Bytes(), &createdTask)
+	assert.Equal(t, "Nouvelle tâche", createdTask.Title)
+}
+
+func TestGetTasks(t *testing.T) {
+	router := setupRouter()
+
+	req, _ := http.NewRequest("GET", "/tasks", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+}
+
+func TestUpdateTask(t *testing.T) {
+	router := setupRouter()
+
+	task := Task{Title: "Tâche à mettre à jour"}
+	jsonValue, _ := json.Marshal(task)
+	req, _ := http.NewRequest("POST", "/tasks", bytes.NewBuffer(jsonValue))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	var createdTask Task
+	json.Unmarshal(w.Body.Bytes(), &createdTask)
+
+	updatedTask := Task{Title: "Tâche mise à jour"}
+	jsonValue, _ = json.Marshal(updatedTask)
+	req, _ = http.NewRequest("PUT", "/tasks/"+strconv.Itoa(createdTask.ID), bytes.NewBuffer(jsonValue))
+	req.Header.Set("Content-Type", "application/json")
+
+	w = httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	var modifiedTask Task
+	json.Unmarshal(w.Body.Bytes(), &modifiedTask)
+	assert.Equal(t, "Tâche mise à jour", modifiedTask.Title)
+}
+
+func TestParallelProcessing(t *testing.T) {
+	router := setupRouter()
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/tasks/parallel", nil)
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	var response map[string]interface{}
+	err := json.Unmarshal(w.Body.Bytes(), &response)
+	assert.NoError(t, err)
+
+	assert.Equal(t, "Toutes les tâches sont terminées 🚀", response["message"])
+	assert.NotNil(t, response["results"])
 }
