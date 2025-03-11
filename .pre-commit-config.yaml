@@ -1,0 +1,6 @@
+repos:
+  - repo: https://github.com/golangci/golangci-lint
+    rev: v1.54.2  # Remplacez par la dernière version disponible
+    hooks:
+      - id: golangci-lint
+        args: ["--fast"]
